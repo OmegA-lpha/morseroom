@@ -1,0 +1,9 @@
+{
+  "name": "@morseroom/shared",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Framework-agnostic morse code logic shared by the MorseRoom client, server and future hardware clients (e.g. ESP32).",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts"
+}
