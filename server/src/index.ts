@@ -1,5 +1,7 @@
 import express from "express";
 import { createServer } from "http";
+import path from "path";
+import { fileURLToPath } from "url";
 import { Server, Socket } from "socket.io";
 import type {
   ClientToServerEvents,
@@ -34,6 +36,18 @@ app.use((req, res, next) => {
 app.get("/health", (_req, res) => {
   res.json({ ok: true, service: "morseroom-server" });
 });
+
+// In production the client's static build is served from the same origin
+// (see /var/www deployment + README) so a single process + reverse proxy
+// is enough. In local dev the client runs on its own Vite server instead.
+if (process.env.NODE_ENV === "production") {
+  const __dirname = path.dirname(fileURLToPath(import.meta.url));
+  const clientDist = path.resolve(__dirname, "../../client/dist");
+  app.use(express.static(clientDist));
+  app.get("*", (_req, res) => {
+    res.sendFile(path.join(clientDist, "index.html"));
+  });
+}
 
 const httpServer = createServer(app);
 
