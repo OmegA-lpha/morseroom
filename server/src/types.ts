@@ -1,8 +1,11 @@
 import type { RoomMessage } from "../../shared/src/types";
 
 export interface ServerUser {
+  /** Stable public author id (clientId, or socket id fallback). */
   id: string;
   name: string;
+  /** The socket currently representing this user (for reconnect handling). */
+  socketId: string;
 }
 
 export interface ServerRoom {

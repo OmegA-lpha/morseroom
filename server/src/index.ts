@@ -103,9 +103,6 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEve
 
 type MorseSocket = Socket<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
 
-// Tracks which room a socket currently belongs to, so we can clean up on disconnect.
-const socketRoomCode = new Map<string, string>();
-
 // --- Abuse protection -------------------------------------------------------
 // Simple per-socket token bucket: sustained RATE_REFILL events/sec, bursts up
 // to RATE_CAPACITY. Fast keying produces a few dozen events/sec at most.
@@ -150,15 +147,29 @@ function sanitizeLetter(value: unknown): string {
     .slice(0, 8);
 }
 
+/**
+ * The stable public author id supplied by the client (a localStorage id). It is
+ * a bearer identity (no accounts), so we only accept a plausible, long-enough
+ * token and otherwise fall back to the ephemeral socket id. Guessing another
+ * person's random id is impractical, which is enough for these throwaway rooms.
+ */
+function sanitizeClientId(value: unknown, fallback: string): string {
+  if (typeof value !== "string") return fallback;
+  const cleaned = value.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 64);
+  return cleaned.length >= 8 ? cleaned : fallback;
+}
+
 function callback<T>(cb: unknown, value: T): void {
   if (typeof cb === "function") (cb as (v: T) => void)(value);
 }
 
 io.on("connection", (socket: MorseSocket) => {
-  const roomOf = (): ReturnType<typeof getRoom> => {
-    const code = socketRoomCode.get(socket.id);
-    return code ? getRoom(code) : undefined;
-  };
+  // Per-connection state. `authorId` is the stable public identity (clientId);
+  // it stays the ephemeral socket id until the client identifies on create/join.
+  let roomCode: string | undefined;
+  let authorId = socket.id;
+
+  const roomOf = (): ReturnType<typeof getRoom> => (roomCode ? getRoom(roomCode) : undefined);
 
   socket.on("room:create", (payload, cb) => {
     if (!allow(socket)) return callback<RoomCreateResult>(cb, { ok: false, error: "Zu viele Anfragen." });
@@ -166,9 +177,10 @@ io.on("connection", (socket: MorseSocket) => {
     if (!room) {
       return callback<RoomCreateResult>(cb, { ok: false, error: "Server ausgelastet, bitte später erneut." });
     }
-    addUserToRoom(room, { id: socket.id, name: sanitizeName(payload?.name) });
+    authorId = sanitizeClientId(payload?.clientId, socket.id);
+    roomCode = room.code;
+    addUserToRoom(room, { id: authorId, name: sanitizeName(payload?.name), socketId: socket.id });
     socket.join(room.code);
-    socketRoomCode.set(socket.id, room.code);
     callback<RoomCreateResult>(cb, { ok: true, state: toRoomState(room) });
   });
 
@@ -182,51 +194,49 @@ io.on("connection", (socket: MorseSocket) => {
     if (!room) {
       return callback<RoomJoinResult>(cb, { ok: false, error: "Dieser Room existiert nicht (mehr)." });
     }
-    if (room.users.size >= MAX_USERS_PER_ROOM && !room.users.has(socket.id)) {
+    const id = sanitizeClientId(payload?.clientId, socket.id);
+    // Rejoining with a known id (e.g. after a reload) is always allowed; the
+    // full check only blocks genuinely new people.
+    if (room.users.size >= MAX_USERS_PER_ROOM && !room.users.has(id)) {
       return callback<RoomJoinResult>(cb, { ok: false, error: "Dieser Room ist voll." });
     }
-    const user = { id: socket.id, name: sanitizeName(payload?.name) };
+    authorId = id;
+    roomCode = room.code;
+    const user = { id: authorId, name: sanitizeName(payload?.name), socketId: socket.id };
     addUserToRoom(room, user);
     socket.join(room.code);
-    socketRoomCode.set(socket.id, room.code);
 
     callback<RoomJoinResult>(cb, { ok: true, state: toRoomState(room) });
-    socket.to(room.code).emit("user:joined", { user });
+    socket.to(room.code).emit("user:joined", { user: { id: user.id, name: user.name } });
     io.to(room.code).emit("room:users", toRoomState(room));
   });
 
   socket.on("signal:start", () => {
-    if (!allow(socket)) return;
-    const code = socketRoomCode.get(socket.id);
-    if (!code) return;
-    socket.to(code).emit("signal:start", { userId: socket.id });
+    if (!allow(socket) || !roomCode) return;
+    socket.to(roomCode).emit("signal:start", { userId: authorId });
   });
 
   socket.on("signal:end", (payload) => {
-    if (!allow(socket)) return;
-    const code = socketRoomCode.get(socket.id);
-    if (!code || !payload || !isSymbol(payload.symbol)) return;
+    if (!allow(socket) || !roomCode || !payload || !isSymbol(payload.symbol)) return;
     const durationMs = Number(payload.durationMs);
     if (!Number.isFinite(durationMs)) return;
-    socket.to(code).emit("signal:end", { userId: socket.id, durationMs, symbol: payload.symbol });
+    socket.to(roomCode).emit("signal:end", { userId: authorId, durationMs, symbol: payload.symbol });
   });
 
   socket.on("morse:symbol", (payload) => {
-    if (!allow(socket)) return;
-    const code = socketRoomCode.get(socket.id);
-    if (!code || !payload || !isSymbol(payload.symbol)) return;
-    socket.to(code).emit("morse:symbol", { userId: socket.id, symbol: payload.symbol });
+    if (!allow(socket) || !roomCode || !payload || !isSymbol(payload.symbol)) return;
+    socket.to(roomCode).emit("morse:symbol", { userId: authorId, symbol: payload.symbol });
   });
 
   socket.on("morse:letter", (payload) => {
     if (!allow(socket)) return;
     const room = roomOf();
     if (!room || !payload || !isMorseCode(payload.morse)) return;
-    const author = room.users.get(socket.id);
+    const author = room.users.get(authorId);
     if (!author) return;
     const letter = sanitizeLetter(payload.letter);
     const message = appendToMessage(room, author, letter, payload.morse);
-    socket.to(room.code).emit("morse:letter", { userId: socket.id, morse: payload.morse, letter });
+    socket.to(room.code).emit("morse:letter", { userId: authorId, morse: payload.morse, letter });
     io.to(room.code).emit("room:message", message);
   });
 
@@ -234,10 +244,10 @@ io.on("connection", (socket: MorseSocket) => {
     if (!allow(socket)) return;
     const room = roomOf();
     if (!room) return;
-    const author = room.users.get(socket.id);
+    const author = room.users.get(authorId);
     if (!author) return;
     const message = appendToMessage(room, author, " ", "/");
-    socket.to(room.code).emit("morse:wordGap", { userId: socket.id });
+    socket.to(room.code).emit("morse:wordGap", { userId: authorId });
     io.to(room.code).emit("room:message", message);
   });
 
@@ -245,7 +255,7 @@ io.on("connection", (socket: MorseSocket) => {
     if (!allow(socket)) return;
     const room = roomOf();
     if (!room) return;
-    const author = room.users.get(socket.id);
+    const author = room.users.get(authorId);
     if (!author) return;
     const message = clearMessage(room, author);
     io.to(room.code).emit("room:message", message);
@@ -255,7 +265,7 @@ io.on("connection", (socket: MorseSocket) => {
     if (!allow(socket)) return;
     const room = roomOf();
     if (!room) return;
-    const user = room.users.get(socket.id);
+    const user = room.users.get(authorId);
     if (!user) return;
     user.name = sanitizeName(payload?.name);
     touchRoom(room);
@@ -265,15 +275,15 @@ io.on("connection", (socket: MorseSocket) => {
   });
 
   socket.on("disconnect", () => {
-    const code = socketRoomCode.get(socket.id);
-    if (!code) return;
-    const room = getRoom(code);
-    socketRoomCode.delete(socket.id);
+    if (!roomCode) return;
+    const room = getRoom(roomCode);
     if (!room) return;
     // Held messages are intentionally kept so the other side can still read
-    // them asynchronously; only presence is removed here.
-    removeUserFromRoom(room, socket.id);
-    io.to(room.code).emit("user:left", { userId: socket.id });
+    // them asynchronously. Only remove presence if this exact socket still
+    // represents the user - a newer socket (reload) must not be evicted.
+    const removed = removeUserFromRoom(room, authorId, socket.id);
+    if (!removed) return;
+    io.to(room.code).emit("user:left", { userId: authorId });
     io.to(room.code).emit("room:users", toRoomState(room));
   });
 });

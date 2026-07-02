@@ -34,6 +34,7 @@ export const DEFAULT_TIMING: TimingConfig = {
 
 /** A user present in a room. */
 export interface RoomUser {
+  /** Stable author id (the client's clientId, or socket id as fallback). */
   id: string;
   name: string;
 }
@@ -45,7 +46,7 @@ export interface RoomUser {
  * same time - each side's message is held until they replace or clear it.
  */
 export interface RoomMessage {
-  /** Socket id of the author at the time of writing. */
+  /** Stable author id (clientId, or socket id fallback). */
   userId: string;
   /** Author's display name (snapshotted so it survives them leaving). */
   name: string;
@@ -65,10 +66,24 @@ export interface RoomState {
   messages: RoomMessage[];
 }
 
-/** Client -> Server events. */
+/**
+ * Client -> Server events.
+ *
+ * `clientId` is a stable per-browser id (localStorage). It is the public
+ * author identity used throughout: held messages and presence are keyed by it,
+ * so reloading the page reclaims your own held message and presence instead of
+ * appearing as a new person. It is optional for backward compatibility - the
+ * server falls back to the (ephemeral) socket id when it is missing.
+ */
 export interface ClientToServerEvents {
-  "room:create": (payload: { name: string }, cb: (res: RoomCreateResult) => void) => void;
-  "room:join": (payload: { code: string; name: string }, cb: (res: RoomJoinResult) => void) => void;
+  "room:create": (
+    payload: { name: string; clientId?: string },
+    cb: (res: RoomCreateResult) => void
+  ) => void;
+  "room:join": (
+    payload: { code: string; name: string; clientId?: string },
+    cb: (res: RoomJoinResult) => void
+  ) => void;
   "signal:start": () => void;
   "signal:end": (payload: { durationMs: number; symbol: MorseSymbol }) => void;
   "morse:symbol": (payload: { symbol: MorseSymbol }) => void;

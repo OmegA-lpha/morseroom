@@ -23,7 +23,10 @@ Doppeltipp-Zoom, keine störenden Browser-Gesten.
 - **Asynchron möglich**: Die aktuelle Nachricht jeder Person wird im Room
   gehalten und auch später Beitretenden angezeigt – man muss nicht
   gleichzeitig online sein. Kein durchlaufender Chatverlauf, sondern die
-  jeweils stehende Nachricht, bis die Person sie ersetzt oder verwirft.
+  jeweils stehende Nachricht, bis die Person sie ersetzt oder verwirft. Ein
+  Seiten-Reload ist unkritisch: über eine stabile, lokal gespeicherte
+  Client-ID erkennt der Server dieselbe Person wieder und stellt ihre
+  gehaltene Nachricht und Präsenz wieder her.
 - **Adaptives Timing (optional)**: „Zeiten aus – nur Verhältnis" dekodiert
   rein nach Morse-Proportionen (Strich = 3× Punkt) und passt sich dem Tempo
   an, statt an feste Millisekunden gebunden zu sein.
@@ -222,9 +225,10 @@ einem Mikrocontroller laufen.
   Rooms spätestens nach 24 h). Es gibt keine dauerhafte Speicherung und
   keinen durchsuchbaren Verlauf – jede Person kann ihre gehaltene Nachricht
   jederzeit über „🗑 Neue Nachricht" verwerfen.
-- Anzeigename, letzter Roomcode und alle Einstellungen liegen ausschließlich
-  lokal im Browser (`localStorage`) – über „Lokalen Verlauf löschen" in den
-  Einstellungen jederzeit entfernbar.
+- Anzeigename, letzter Roomcode, eine zufällige Client-ID (nur zum
+  Wiedererkennen nach einem Reload – kein personenbezogenes Datum) und alle
+  Einstellungen liegen ausschließlich lokal im Browser (`localStorage`) –
+  über „Lokalen Verlauf löschen" in den Einstellungen jederzeit entfernbar.
 - **Wichtig**: Es gibt **keine Ende-zu-Ende-Verschlüsselung**. Der Server
   verarbeitet die Events (Signale, Symbole, Buchstaben) aktiv, um sie
   weiterzuleiten und die aktuelle Nachricht zu halten – er kann sie daher

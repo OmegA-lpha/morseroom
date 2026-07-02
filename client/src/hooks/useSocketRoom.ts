@@ -7,6 +7,7 @@ import type {
   RoomMessage,
   MorseSymbol,
 } from "@shared/types";
+import { getClientId } from "../lib/clientId";
 
 /** Index the server's held-message list by author id for quick lookup. */
 function indexMessages(list: RoomMessage[]): Record<string, RoomMessage> {
@@ -34,6 +35,8 @@ export type MorseSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
  * typed emit helpers for the live morse signal events.
  */
 export function useSocketRoom() {
+  // Stable public identity for this browser (survives reloads/new sockets).
+  const clientId = getClientId();
   const socketRef = useRef<MorseSocket | null>(null);
   const [socket, setSocket] = useState<MorseSocket | null>(null);
   const [connected, setConnected] = useState(false);
@@ -80,7 +83,7 @@ export function useSocketRoom() {
     return new Promise<RoomState>((resolve, reject) => {
       const socket = socketRef.current;
       if (!socket) return reject(new Error("Keine Verbindung zum Server."));
-      socket.emit("room:create", { name }, (res) => {
+      socket.emit("room:create", { name, clientId }, (res) => {
         if (res.ok && res.state) {
           setRoomState(res.state);
           setMessages(indexMessages(res.state.messages));
@@ -92,13 +95,13 @@ export function useSocketRoom() {
         }
       });
     });
-  }, []);
+  }, [clientId]);
 
   const joinRoom = useCallback((code: string, name: string) => {
     return new Promise<RoomState>((resolve, reject) => {
       const socket = socketRef.current;
       if (!socket) return reject(new Error("Keine Verbindung zum Server."));
-      socket.emit("room:join", { code: code.toUpperCase(), name }, (res) => {
+      socket.emit("room:join", { code: code.toUpperCase(), name, clientId }, (res) => {
         if (res.ok && res.state) {
           setRoomState(res.state);
           setMessages(indexMessages(res.state.messages));
@@ -110,7 +113,7 @@ export function useSocketRoom() {
         }
       });
     });
-  }, []);
+  }, [clientId]);
 
   const sendSignalStart = useCallback(() => {
     socketRef.current?.emit("signal:start");
@@ -158,6 +161,7 @@ export function useSocketRoom() {
     sendWordGap,
     sendClear,
     updateName,
-    selfId: socket?.id,
+    /** Stable public identity of this browser (matches RoomMessage.userId). */
+    selfId: clientId,
   };
 }

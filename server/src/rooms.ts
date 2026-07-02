@@ -86,14 +86,26 @@ export function addUserToRoom(room: ServerRoom, user: ServerUser): void {
  * Removes a present user but keeps their held message so the other side can
  * still read it. The room itself is only reclaimed later by cleanupRooms once
  * it has been empty long enough (see EMPTY_ROOM_TTL_MS).
+ *
+ * `expectedSocketId` guards against a stale socket (e.g. the old one from a
+ * page reload) evicting a user that a newer socket has already reclaimed: the
+ * user is only removed if they are still represented by that exact socket.
  */
-export function removeUserFromRoom(room: ServerRoom, userId: string): void {
+export function removeUserFromRoom(
+  room: ServerRoom,
+  userId: string,
+  expectedSocketId?: string
+): boolean {
+  const user = room.users.get(userId);
+  if (!user) return false;
+  if (expectedSocketId && user.socketId !== expectedSocketId) return false;
   room.users.delete(userId);
   touchRoom(room);
   // A room with neither users nor messages is useless immediately.
   if (room.users.size === 0 && room.messages.size === 0) {
     rooms.delete(room.code);
   }
+  return true;
 }
 
 /** Appends decoded text + morse to an author's held message (bounded). */
@@ -158,7 +170,8 @@ function setMessage(room: ServerRoom, message: RoomMessage): void {
 export function toRoomState(room: ServerRoom): RoomState {
   return {
     code: room.code,
-    users: Array.from(room.users.values()),
+    // Only expose public fields; the internal socketId never leaves the server.
+    users: Array.from(room.users.values()).map((u) => ({ id: u.id, name: u.name })),
     messages: Array.from(room.messages.values()).sort((a, b) => a.updatedAt - b.updatedAt),
   };
 }
