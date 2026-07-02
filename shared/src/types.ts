@@ -13,6 +13,15 @@ export interface TimingConfig {
   letterGapMs: number;
   /** A pause at or above this duration ends the current word. */
   wordGapMs: number;
+  /**
+   * When true the absolute ms thresholds above (dash/letter/word) are ignored.
+   * Instead the decoder works purely from the *ratios* of your own keying,
+   * the way real morse does: dash = 3x dot, letter gap = 3x dot,
+   * word gap = 7x dot. It continuously estimates your dot unit, so a dot may
+   * be 40 ms or 200 ms - only the proportions matter. `ignoreBelowMs` still
+   * applies as a debounce for accidental taps.
+   */
+  adaptive: boolean;
 }
 
 export const DEFAULT_TIMING: TimingConfig = {
@@ -20,6 +29,7 @@ export const DEFAULT_TIMING: TimingConfig = {
   dashThresholdMs: 350,
   letterGapMs: 700,
   wordGapMs: 1400,
+  adaptive: false,
 };
 
 /** A user present in a room. */

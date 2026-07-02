@@ -113,50 +113,68 @@ export function SettingsPanel({ open, settings, onUpdate, onClose, onClearHistor
           />
         </div>
 
-        <div className="field">
-          <div className="field__row">
-            <span className="field__label">Strich-Grenze</span>
-            <span className="field__value">{settings.dashThresholdMs} ms</span>
-          </div>
-          <input
-            type="range"
-            min={150}
-            max={800}
-            step={10}
-            value={settings.dashThresholdMs}
-            onChange={(e) => onUpdate({ dashThresholdMs: Number(e.target.value) })}
-          />
-        </div>
+        <Toggle
+          label="Zeiten aus – nur Verhältnis"
+          on={settings.adaptive}
+          onToggle={() => onUpdate({ adaptive: !settings.adaptive })}
+        />
 
-        <div className="field">
-          <div className="field__row">
-            <span className="field__label">Buchstabenpause</span>
-            <span className="field__value">{settings.letterGapMs} ms</span>
+        {settings.adaptive ? (
+          <div className="field">
+            <span className="field__hint">
+              Feste Zeiten sind aus. Erkannt wird allein am Verhältnis deines eigenen Tempos
+              (Strich = 3× Punkt, Buchstabenpause = 3×, Wortpause = 7×). Ein Punkt darf 40 ms
+              oder 200 ms lang sein – es zählt nur die Proportion.
+            </span>
           </div>
-          <input
-            type="range"
-            min={300}
-            max={1500}
-            step={10}
-            value={settings.letterGapMs}
-            onChange={(e) => onUpdate({ letterGapMs: Number(e.target.value) })}
-          />
-        </div>
+        ) : (
+          <>
+            <div className="field">
+              <div className="field__row">
+                <span className="field__label">Strich-Grenze</span>
+                <span className="field__value">{settings.dashThresholdMs} ms</span>
+              </div>
+              <input
+                type="range"
+                min={150}
+                max={800}
+                step={10}
+                value={settings.dashThresholdMs}
+                onChange={(e) => onUpdate({ dashThresholdMs: Number(e.target.value) })}
+              />
+            </div>
 
-        <div className="field">
-          <div className="field__row">
-            <span className="field__label">Wortpause</span>
-            <span className="field__value">{settings.wordGapMs} ms</span>
-          </div>
-          <input
-            type="range"
-            min={600}
-            max={3000}
-            step={10}
-            value={settings.wordGapMs}
-            onChange={(e) => onUpdate({ wordGapMs: Number(e.target.value) })}
-          />
-        </div>
+            <div className="field">
+              <div className="field__row">
+                <span className="field__label">Buchstabenpause</span>
+                <span className="field__value">{settings.letterGapMs} ms</span>
+              </div>
+              <input
+                type="range"
+                min={300}
+                max={1500}
+                step={10}
+                value={settings.letterGapMs}
+                onChange={(e) => onUpdate({ letterGapMs: Number(e.target.value) })}
+              />
+            </div>
+
+            <div className="field">
+              <div className="field__row">
+                <span className="field__label">Wortpause</span>
+                <span className="field__value">{settings.wordGapMs} ms</span>
+              </div>
+              <input
+                type="range"
+                min={600}
+                max={3000}
+                step={10}
+                value={settings.wordGapMs}
+                onChange={(e) => onUpdate({ wordGapMs: Number(e.target.value) })}
+              />
+            </div>
+          </>
+        )}
 
         <div className="field">
           <div className="field__row">
