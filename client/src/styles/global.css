@@ -466,6 +466,41 @@ a {
   color: var(--color-text-dim);
 }
 
+.asyncHint {
+  font-size: 0.82rem;
+  line-height: 1.4;
+  color: var(--color-text-dim);
+  background: var(--color-bg-raised);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 8px 12px;
+  text-align: center;
+}
+.asyncHint strong {
+  color: var(--color-text);
+}
+
+.home__footer {
+  margin-top: 24px;
+  text-align: center;
+}
+.home__ghLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-dim);
+  text-decoration: none;
+  font-size: 0.85rem;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  padding: 8px 14px;
+  transition: color 0.15s, border-color 0.15s;
+}
+.home__ghLink:hover {
+  color: var(--color-text);
+  border-color: var(--color-accent);
+}
+
 .switch {
   width: 46px;
   height: 26px;

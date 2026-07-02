@@ -6,6 +6,7 @@ import { Server, Socket } from "socket.io";
 import type {
   ClientToServerEvents,
   ServerToClientEvents,
+  MorseSymbol,
   RoomCreateResult,
   RoomJoinResult,
 } from "../../shared/src/types";
@@ -15,20 +16,46 @@ import {
   addUserToRoom,
   removeUserFromRoom,
   toRoomState,
+  touchRoom,
+  appendToMessage,
+  clearMessage,
+  renameAuthor,
+  cleanupRooms,
   isValidRoomCodeFormat,
+  MAX_USERS_PER_ROOM,
 } from "./rooms";
 
 const PORT = Number(process.env.PORT) || 4000;
 // Comma-separated list of allowed origins for local + deployed frontends.
-const ALLOWED_ORIGINS = (process.env.CLIENT_ORIGIN ?? "http://localhost:5173")
-  .split(",")
-  .map((origin) => origin.trim());
+// "*" disables the allow-list (handy for quick self-hosting; not recommended
+// for a public deployment where you want to pin your own domain).
+const RAW_ORIGINS = process.env.CLIENT_ORIGIN ?? "http://localhost:5173";
+const ALLOW_ALL_ORIGINS = RAW_ORIGINS.trim() === "*";
+const ALLOWED_ORIGINS = RAW_ORIGINS.split(",").map((origin) => origin.trim()).filter(Boolean);
+
+function isAllowedOrigin(origin: string | undefined): boolean {
+  if (ALLOW_ALL_ORIGINS) return true;
+  return !!origin && ALLOWED_ORIGINS.includes(origin);
+}
 
 const app = express();
+app.disable("x-powered-by");
+
+// Minimal, dependency-free security headers. CSP is intentionally left to the
+// reverse proxy so it can be tuned per deployment without breaking the SPA.
+app.use((_req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  res.setHeader("Permissions-Policy", "geolocation=(), microphone=(), camera=()");
+  next();
+});
+
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  if (origin && ALLOWED_ORIGINS.includes(origin)) {
-    res.setHeader("Access-Control-Allow-Origin", origin);
+  if (isAllowedOrigin(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", ALLOW_ALL_ORIGINS ? "*" : origin!);
+    res.setHeader("Vary", "Origin");
   }
   next();
 });
@@ -38,8 +65,8 @@ app.get("/health", (_req, res) => {
 });
 
 // In production the client's static build is served from the same origin
-// (see /var/www deployment + README) so a single process + reverse proxy
-// is enough. In local dev the client runs on its own Vite server instead.
+// (see README) so a single process + reverse proxy is enough. In local dev
+// the client runs on its own Vite server instead.
 if (process.env.NODE_ENV === "production") {
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
   const clientDist = path.resolve(__dirname, "../../client/dist");
@@ -51,90 +78,190 @@ if (process.env.NODE_ENV === "production") {
 
 const httpServer = createServer(app);
 
-const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
-  cors: {
-    origin: ALLOWED_ORIGINS,
-    methods: ["GET", "POST"],
-  },
-});
+type InterServerEvents = Record<string, never>;
+interface TokenBucket {
+  tokens: number;
+  last: number;
+}
+interface SocketData {
+  bucket?: TokenBucket;
+}
+
+const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(
+  httpServer,
+  {
+    cors: {
+      origin: ALLOW_ALL_ORIGINS ? true : ALLOWED_ORIGINS,
+      methods: ["GET", "POST"],
+    },
+    // Cap payload size so no single frame can exhaust memory. Morse frames are
+    // tiny; 8 KB is generous.
+    maxHttpBufferSize: 8 * 1024,
+    pingTimeout: 20_000,
+  }
+);
+
+type MorseSocket = Socket<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
 
 // Tracks which room a socket currently belongs to, so we can clean up on disconnect.
 const socketRoomCode = new Map<string, string>();
 
-function sanitizeName(name: string): string {
-  const trimmed = (name ?? "").trim().slice(0, 24);
-  return trimmed.length > 0 ? trimmed : "Anonym";
+// --- Abuse protection -------------------------------------------------------
+// Simple per-socket token bucket: sustained RATE_REFILL events/sec, bursts up
+// to RATE_CAPACITY. Fast keying produces a few dozen events/sec at most.
+const RATE_CAPACITY = 120;
+const RATE_REFILL_PER_SEC = 60;
+
+function allow(socket: MorseSocket): boolean {
+  const now = Date.now();
+  const bucket = socket.data.bucket ?? { tokens: RATE_CAPACITY, last: now };
+  bucket.tokens = Math.min(
+    RATE_CAPACITY,
+    bucket.tokens + ((now - bucket.last) / 1000) * RATE_REFILL_PER_SEC
+  );
+  bucket.last = now;
+  socket.data.bucket = bucket;
+  if (bucket.tokens < 1) return false;
+  bucket.tokens -= 1;
+  return true;
 }
 
-io.on("connection", (socket: Socket<ClientToServerEvents, ServerToClientEvents>) => {
-  socket.on("room:create", ({ name }, cb: (res: RoomCreateResult) => void) => {
+// --- Input validation -------------------------------------------------------
+function sanitizeName(name: unknown): string {
+  const cleaned = (typeof name === "string" ? name : "")
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .trim()
+    .slice(0, 24);
+  return cleaned.length > 0 ? cleaned : "Anonym";
+}
+
+function isSymbol(value: unknown): value is MorseSymbol {
+  return value === "." || value === "-";
+}
+
+/** A single letter's morse code, e.g. "...-". Kept short and charset-checked. */
+function isMorseCode(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= 32 && /^[.\-]+$/.test(value);
+}
+
+function sanitizeLetter(value: unknown): string {
+  return (typeof value === "string" ? value : "")
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .slice(0, 8);
+}
+
+function callback<T>(cb: unknown, value: T): void {
+  if (typeof cb === "function") (cb as (v: T) => void)(value);
+}
+
+io.on("connection", (socket: MorseSocket) => {
+  const roomOf = (): ReturnType<typeof getRoom> => {
+    const code = socketRoomCode.get(socket.id);
+    return code ? getRoom(code) : undefined;
+  };
+
+  socket.on("room:create", (payload, cb) => {
+    if (!allow(socket)) return callback<RoomCreateResult>(cb, { ok: false, error: "Zu viele Anfragen." });
     const room = createRoom();
-    addUserToRoom(room, { id: socket.id, name: sanitizeName(name) });
+    if (!room) {
+      return callback<RoomCreateResult>(cb, { ok: false, error: "Server ausgelastet, bitte später erneut." });
+    }
+    addUserToRoom(room, { id: socket.id, name: sanitizeName(payload?.name) });
     socket.join(room.code);
     socketRoomCode.set(socket.id, room.code);
-    cb({ ok: true, state: toRoomState(room) });
+    callback<RoomCreateResult>(cb, { ok: true, state: toRoomState(room) });
   });
 
-  socket.on("room:join", ({ code, name }, cb: (res: RoomJoinResult) => void) => {
+  socket.on("room:join", (payload, cb) => {
+    if (!allow(socket)) return callback<RoomJoinResult>(cb, { ok: false, error: "Zu viele Anfragen." });
+    const code = payload?.code;
     if (!code || !isValidRoomCodeFormat(code)) {
-      cb({ ok: false, error: "Ungültiger Roomcode." });
-      return;
+      return callback<RoomJoinResult>(cb, { ok: false, error: "Ungültiger Roomcode." });
     }
     const room = getRoom(code);
     if (!room) {
-      cb({ ok: false, error: "Dieser Room existiert nicht (mehr)." });
-      return;
+      return callback<RoomJoinResult>(cb, { ok: false, error: "Dieser Room existiert nicht (mehr)." });
     }
-    const user = { id: socket.id, name: sanitizeName(name) };
+    if (room.users.size >= MAX_USERS_PER_ROOM && !room.users.has(socket.id)) {
+      return callback<RoomJoinResult>(cb, { ok: false, error: "Dieser Room ist voll." });
+    }
+    const user = { id: socket.id, name: sanitizeName(payload?.name) };
     addUserToRoom(room, user);
     socket.join(room.code);
     socketRoomCode.set(socket.id, room.code);
 
-    cb({ ok: true, state: toRoomState(room) });
+    callback<RoomJoinResult>(cb, { ok: true, state: toRoomState(room) });
     socket.to(room.code).emit("user:joined", { user });
     io.to(room.code).emit("room:users", toRoomState(room));
   });
 
   socket.on("signal:start", () => {
+    if (!allow(socket)) return;
     const code = socketRoomCode.get(socket.id);
     if (!code) return;
     socket.to(code).emit("signal:start", { userId: socket.id });
   });
 
-  socket.on("signal:end", ({ durationMs, symbol }) => {
+  socket.on("signal:end", (payload) => {
+    if (!allow(socket)) return;
     const code = socketRoomCode.get(socket.id);
-    if (!code) return;
-    socket.to(code).emit("signal:end", { userId: socket.id, durationMs, symbol });
+    if (!code || !payload || !isSymbol(payload.symbol)) return;
+    const durationMs = Number(payload.durationMs);
+    if (!Number.isFinite(durationMs)) return;
+    socket.to(code).emit("signal:end", { userId: socket.id, durationMs, symbol: payload.symbol });
   });
 
-  socket.on("morse:symbol", ({ symbol }) => {
+  socket.on("morse:symbol", (payload) => {
+    if (!allow(socket)) return;
     const code = socketRoomCode.get(socket.id);
-    if (!code) return;
-    socket.to(code).emit("morse:symbol", { userId: socket.id, symbol });
+    if (!code || !payload || !isSymbol(payload.symbol)) return;
+    socket.to(code).emit("morse:symbol", { userId: socket.id, symbol: payload.symbol });
   });
 
-  socket.on("morse:letter", ({ morse, letter }) => {
-    const code = socketRoomCode.get(socket.id);
-    if (!code) return;
-    socket.to(code).emit("morse:letter", { userId: socket.id, morse, letter });
+  socket.on("morse:letter", (payload) => {
+    if (!allow(socket)) return;
+    const room = roomOf();
+    if (!room || !payload || !isMorseCode(payload.morse)) return;
+    const author = room.users.get(socket.id);
+    if (!author) return;
+    const letter = sanitizeLetter(payload.letter);
+    const message = appendToMessage(room, author, letter, payload.morse);
+    socket.to(room.code).emit("morse:letter", { userId: socket.id, morse: payload.morse, letter });
+    io.to(room.code).emit("room:message", message);
   });
 
   socket.on("morse:wordGap", () => {
-    const code = socketRoomCode.get(socket.id);
-    if (!code) return;
-    socket.to(code).emit("morse:wordGap", { userId: socket.id });
+    if (!allow(socket)) return;
+    const room = roomOf();
+    if (!room) return;
+    const author = room.users.get(socket.id);
+    if (!author) return;
+    const message = appendToMessage(room, author, " ", "/");
+    socket.to(room.code).emit("morse:wordGap", { userId: socket.id });
+    io.to(room.code).emit("room:message", message);
   });
 
-  socket.on("user:updateSettings", ({ name }) => {
-    const code = socketRoomCode.get(socket.id);
-    if (!code) return;
-    const room = getRoom(code);
+  socket.on("morse:clear", () => {
+    if (!allow(socket)) return;
+    const room = roomOf();
+    if (!room) return;
+    const author = room.users.get(socket.id);
+    if (!author) return;
+    const message = clearMessage(room, author);
+    io.to(room.code).emit("room:message", message);
+  });
+
+  socket.on("user:updateSettings", (payload) => {
+    if (!allow(socket)) return;
+    const room = roomOf();
     if (!room) return;
     const user = room.users.get(socket.id);
-    if (user) {
-      user.name = sanitizeName(name);
-      io.to(room.code).emit("room:users", toRoomState(room));
-    }
+    if (!user) return;
+    user.name = sanitizeName(payload?.name);
+    touchRoom(room);
+    const message = renameAuthor(room, user);
+    io.to(room.code).emit("room:users", toRoomState(room));
+    if (message) io.to(room.code).emit("room:message", message);
   });
 
   socket.on("disconnect", () => {
@@ -143,12 +270,29 @@ io.on("connection", (socket: Socket<ClientToServerEvents, ServerToClientEvents>)
     const room = getRoom(code);
     socketRoomCode.delete(socket.id);
     if (!room) return;
+    // Held messages are intentionally kept so the other side can still read
+    // them asynchronously; only presence is removed here.
     removeUserFromRoom(room, socket.id);
     io.to(room.code).emit("user:left", { userId: socket.id });
     io.to(room.code).emit("room:users", toRoomState(room));
   });
 });
 
+// Periodic idle-room reclamation (also runs opportunistically on create).
+const cleanupTimer = setInterval(() => cleanupRooms(), 10 * 60 * 1000);
+cleanupTimer.unref();
+
 httpServer.listen(PORT, () => {
   console.log(`MorseRoom server listening on port ${PORT}`);
 });
+
+// Graceful shutdown so deployments (SIGTERM from orchestrators) drain cleanly.
+function shutdown(signal: string) {
+  console.log(`Received ${signal}, shutting down...`);
+  clearInterval(cleanupTimer);
+  io.close();
+  httpServer.close(() => process.exit(0));
+  setTimeout(() => process.exit(1), 10_000).unref();
+}
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));

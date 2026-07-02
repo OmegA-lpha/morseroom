@@ -4,8 +4,16 @@ import type {
   ClientToServerEvents,
   ServerToClientEvents,
   RoomState,
+  RoomMessage,
   MorseSymbol,
 } from "@shared/types";
+
+/** Index the server's held-message list by author id for quick lookup. */
+function indexMessages(list: RoomMessage[]): Record<string, RoomMessage> {
+  const record: Record<string, RoomMessage> = {};
+  for (const message of list) record[message.userId] = message;
+  return record;
+}
 
 function getServerUrl(): string {
   const envUrl = import.meta.env.VITE_SERVER_URL as string | undefined;
@@ -30,6 +38,8 @@ export function useSocketRoom() {
   const [socket, setSocket] = useState<MorseSocket | null>(null);
   const [connected, setConnected] = useState(false);
   const [roomState, setRoomState] = useState<RoomState | null>(null);
+  /** Server-authoritative held messages, keyed by author id. */
+  const [messages, setMessages] = useState<Record<string, RoomMessage>>({});
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -41,9 +51,17 @@ export function useSocketRoom() {
     socket.on("disconnect", () => setConnected(false));
     socket.on("connect_error", () => setError("Server nicht erreichbar."));
     socket.on("room:error", ({ message }) => setError(message));
-    socket.on("room:users", (state) => setRoomState(state));
+    socket.on("room:users", (state) => {
+      setRoomState(state);
+      setMessages(indexMessages(state.messages));
+    });
+    socket.on("room:message", (message) => {
+      setMessages((prev) => ({ ...prev, [message.userId]: message }));
+    });
     socket.on("user:joined", ({ user }) => {
-      setRoomState((prev) => (prev ? { ...prev, users: [...prev.users, user] } : prev));
+      setRoomState((prev) =>
+        prev ? { ...prev, users: [...prev.users.filter((u) => u.id !== user.id), user] } : prev
+      );
     });
     socket.on("user:left", ({ userId }) => {
       setRoomState((prev) =>
@@ -65,6 +83,7 @@ export function useSocketRoom() {
       socket.emit("room:create", { name }, (res) => {
         if (res.ok && res.state) {
           setRoomState(res.state);
+          setMessages(indexMessages(res.state.messages));
           resolve(res.state);
         } else {
           const message = res.error ?? "Room konnte nicht erstellt werden.";
@@ -82,6 +101,7 @@ export function useSocketRoom() {
       socket.emit("room:join", { code: code.toUpperCase(), name }, (res) => {
         if (res.ok && res.state) {
           setRoomState(res.state);
+          setMessages(indexMessages(res.state.messages));
           resolve(res.state);
         } else {
           const message = res.error ?? "Room konnte nicht betreten werden.";
@@ -112,6 +132,10 @@ export function useSocketRoom() {
     socketRef.current?.emit("morse:wordGap");
   }, []);
 
+  const sendClear = useCallback(() => {
+    socketRef.current?.emit("morse:clear");
+  }, []);
+
   const updateName = useCallback((name: string) => {
     socketRef.current?.emit("user:updateSettings", { name });
   }, []);
@@ -122,6 +146,7 @@ export function useSocketRoom() {
     socket,
     connected,
     roomState,
+    messages,
     error,
     clearError,
     createRoom,
@@ -131,6 +156,7 @@ export function useSocketRoom() {
     sendSymbol,
     sendLetter,
     sendWordGap,
+    sendClear,
     updateName,
     selfId: socket?.id,
   };

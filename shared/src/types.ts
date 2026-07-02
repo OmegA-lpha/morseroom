@@ -38,10 +38,31 @@ export interface RoomUser {
   name: string;
 }
 
+/**
+ * A held ("async") message: the current standing message of one author in a
+ * room. Unlike the live signal events it is persisted server-side and handed
+ * to anyone who joins later, so the two sides do not have to be online at the
+ * same time - each side's message is held until they replace or clear it.
+ */
+export interface RoomMessage {
+  /** Socket id of the author at the time of writing. */
+  userId: string;
+  /** Author's display name (snapshotted so it survives them leaving). */
+  name: string;
+  /** Decoded text so far. */
+  text: string;
+  /** Raw morse so far (letters separated by spaces, words by " / "). */
+  morse: string;
+  /** Epoch ms of the last update, for ordering. */
+  updatedAt: number;
+}
+
 /** Public room state sent to clients. */
 export interface RoomState {
   code: string;
   users: RoomUser[];
+  /** Held messages of everyone who has written in this room. */
+  messages: RoomMessage[];
 }
 
 /** Client -> Server events. */
@@ -53,6 +74,8 @@ export interface ClientToServerEvents {
   "morse:symbol": (payload: { symbol: MorseSymbol }) => void;
   "morse:letter": (payload: { morse: string; letter: string }) => void;
   "morse:wordGap": () => void;
+  /** Reset the sender's held message to start a fresh one. */
+  "morse:clear": () => void;
   "user:updateSettings": (payload: { name: string }) => void;
 }
 
@@ -69,6 +92,8 @@ export interface ServerToClientEvents {
   "morse:letter": (payload: { userId: string; morse: string; letter: string }) => void;
   "morse:wordGap": (payload: { userId: string }) => void;
   "room:users": (state: RoomState) => void;
+  /** Authoritative held message for one author (also fired on clear). */
+  "room:message": (payload: RoomMessage) => void;
 }
 
 export interface RoomCreateResult {

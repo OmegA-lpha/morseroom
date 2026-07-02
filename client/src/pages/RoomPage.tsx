@@ -19,6 +19,7 @@ export function RoomPage() {
     socket,
     connected,
     roomState,
+    messages,
     error,
     clearError,
     createRoom,
@@ -28,15 +29,15 @@ export function RoomPage() {
     sendSymbol,
     sendLetter,
     sendWordGap,
+    sendClear,
+    selfId,
   } = useSocketRoom();
 
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [receivedText, setReceivedText] = useState("");
-  const [receivedHistory, setReceivedHistory] = useState("");
-  const [receivedBuffer, setReceivedBuffer] = useState("");
-  const [ownHistory, setOwnHistory] = useState("");
+  // In-progress (not yet completed) symbols per author, shown live on top of
+  // the persisted held message. Cleared once the letter/word is committed.
+  const [liveSymbols, setLiveSymbols] = useState<Record<string, string>>({});
   const [ownBuffer, setOwnBuffer] = useState("");
-  const [ownText, setOwnText] = useState("");
   const [remoteFlash, setRemoteFlash] = useState(false);
   const [blindRevealed, setBlindRevealed] = useState(false);
 
@@ -69,6 +70,9 @@ export function RoomPage() {
   }, [socket, codeParam]);
 
   // Live remote signal -> tone + screen flash (mirrors a real morse lamp).
+  // The decoded text/morse itself is server-authoritative (held messages),
+  // so here we only drive the ephemeral live feedback and the in-progress
+  // symbol buffer; completed letters arrive via room:message in useSocketRoom.
   useEffect(() => {
     if (!socket) return;
     const onSignalStart = () => {
@@ -79,31 +83,25 @@ export function RoomPage() {
       setRemoteFlash(false);
       remoteTone.stop();
     };
-    const onSymbol = ({ symbol }: { symbol: "." | "-" }) => {
-      setReceivedBuffer((prev) => prev + symbol);
+    const onSymbol = ({ userId, symbol }: { userId: string; symbol: "." | "-" }) => {
+      setLiveSymbols((prev) => ({ ...prev, [userId]: (prev[userId] ?? "") + symbol }));
     };
-    const onLetter = ({ morse, letter }: { morse: string; letter: string }) => {
-      setReceivedHistory((prev) => (prev ? `${prev} ${morse}` : morse));
-      setReceivedText((prev) => prev + letter);
-      setReceivedBuffer("");
-    };
-    const onWordGap = () => {
-      setReceivedHistory((prev) => (prev ? `${prev} /` : "/"));
-      setReceivedText((prev) => (prev.endsWith(" ") ? prev : prev + " "));
+    const clearLive = ({ userId }: { userId: string }) => {
+      setLiveSymbols((prev) => (prev[userId] ? { ...prev, [userId]: "" } : prev));
     };
 
     socket.on("signal:start", onSignalStart);
     socket.on("signal:end", onSignalEnd);
     socket.on("morse:symbol", onSymbol);
-    socket.on("morse:letter", onLetter);
-    socket.on("morse:wordGap", onWordGap);
+    socket.on("morse:letter", clearLive);
+    socket.on("morse:wordGap", clearLive);
 
     return () => {
       socket.off("signal:start", onSignalStart);
       socket.off("signal:end", onSignalEnd);
       socket.off("morse:symbol", onSymbol);
-      socket.off("morse:letter", onLetter);
-      socket.off("morse:wordGap", onWordGap);
+      socket.off("morse:letter", clearLive);
+      socket.off("morse:wordGap", clearLive);
     };
   }, [socket, settings.lightEnabled, settings.soundEnabled, remoteTone]);
 
@@ -124,17 +122,36 @@ export function RoomPage() {
       sendSymbol(symbol);
     },
     onLetter: (morse, letter) => {
-      setOwnHistory((prev) => (prev ? `${prev} ${morse}` : morse));
-      setOwnText((prev) => prev + letter);
       setOwnBuffer("");
       sendLetter(morse, letter);
     },
     onWordGap: () => {
-      setOwnHistory((prev) => (prev ? `${prev} /` : "/"));
-      setOwnText((prev) => (prev.endsWith(" ") ? prev : prev + " "));
+      setOwnBuffer("");
       sendWordGap();
     },
   });
+
+  // Derive the display from the server-authoritative held messages plus the
+  // live in-progress symbol buffers.
+  const ownMessage = selfId ? messages[selfId] : undefined;
+  const otherMessages = Object.values(messages)
+    .filter((m) => m.userId !== selfId)
+    .sort((a, b) => b.updatedAt - a.updatedAt);
+  const otherMessage = otherMessages[0];
+  const otherOnline = otherMessage
+    ? !!roomState?.users.some((u) => u.id === otherMessage.userId)
+    : false;
+
+  const withLive = (morse: string, live: string) => (live ? `${morse} ${live}`.trim() : morse);
+  const receivedMorse = otherMessage
+    ? withLive(otherMessage.morse, liveSymbols[otherMessage.userId] ?? "")
+    : "";
+  const ownMorse = withLive(ownMessage?.morse ?? "", ownBuffer);
+
+  const handleClearOwn = useCallback(() => {
+    setOwnBuffer("");
+    sendClear();
+  }, [sendClear]);
 
   const shareLink = `${window.location.origin}/room/${roomState?.code ?? codeParam}`;
   const displayCode = roomState?.code ?? codeParam?.toUpperCase() ?? "";
@@ -179,11 +196,18 @@ export function RoomPage() {
         onOpenSettings={() => setSettingsOpen(true)}
       />
 
+      {otherMessage && (otherMessage.text || otherMessage.morse) && (
+        <div className="asyncHint">
+          Nachricht von <strong>{otherMessage.name}</strong>
+          {otherOnline ? " (online)" : " · offline – wird gehalten, bis du antwortest"}
+        </div>
+      )}
+
       <MorseDisplay
-        receivedText={receivedText}
-        receivedMorse={receivedHistory ? `${receivedHistory} ${receivedBuffer}`.trim() : receivedBuffer}
-        ownMorse={ownHistory ? `${ownHistory} ${ownBuffer}`.trim() : ownBuffer}
-        ownText={ownText}
+        receivedText={otherMessage?.text ?? ""}
+        receivedMorse={receivedMorse}
+        ownMorse={ownMorse}
+        ownText={ownMessage?.text ?? ""}
         displayMode={settings.displayMode}
         displayVisible={settings.displayVisible}
         blindRevealed={blindRevealed}
@@ -194,6 +218,15 @@ export function RoomPage() {
         <MorseButton pressed={pressed} {...handlers} disabled={!roomState} />
         <span className="morseButton__hint">gedrückt halten (oder Leertaste)</span>
         <div className="morseControls">
+          <button
+            className="btn btn--icon"
+            onClick={handleClearOwn}
+            disabled={!ownMessage?.text && !ownMessage?.morse && !ownBuffer}
+            aria-label="Neue Nachricht beginnen"
+            title="Neue Nachricht beginnen"
+          >
+            🗑
+          </button>
           <button
             className={`btn btn--icon${settings.displayVisible ? " isActive" : ""}`}
             onClick={() => updateSettings({ displayVisible: !settings.displayVisible })}

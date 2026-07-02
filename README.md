@@ -20,6 +20,13 @@ Doppeltipp-Zoom, keine störenden Browser-Gesten.
   auch das rohe Signal (`signal:start`/`signal:end`) wird live übertragen –
   die Gegenseite erlebt Ton und Bildschirm-Blitz in Echtzeit, so lange die
   Taste gehalten wird.
+- **Asynchron möglich**: Die aktuelle Nachricht jeder Person wird im Room
+  gehalten und auch später Beitretenden angezeigt – man muss nicht
+  gleichzeitig online sein. Kein durchlaufender Chatverlauf, sondern die
+  jeweils stehende Nachricht, bis die Person sie ersetzt oder verwirft.
+- **Adaptives Timing (optional)**: „Zeiten aus – nur Verhältnis" dekodiert
+  rein nach Morse-Proportionen (Strich = 3× Punkt) und passt sich dem Tempo
+  an, statt an feste Millisekunden gebunden zu sein.
 - **Drei Anzeige-Modi**: Alles sichtbar, Lernmodus (Morsecode verborgen) und
   Blindmodus (nur Ton/Licht, Auflösen erst auf Wunsch) – zum echten Hören/
   Sehen-Lernen statt Ablesen.
@@ -155,19 +162,27 @@ signal:end             { durationMs, symbol }
 morse:symbol          { symbol }
 morse:letter           { morse, letter }
 morse:wordGap
+morse:clear                                             (aktuelle Nachricht verwerfen)
 user:updateSettings  { name }
 ```
 
 **Server → Client**
 
 ```
-room:created / room:joined   RoomState
+room:created / room:joined   RoomState (inkl. users + gehaltene messages)
 room:error                     { message }
 user:joined / user:left        { user } / { userId }
 signal:start / signal:end      { userId, ... }
 morse:symbol / morse:letter / morse:wordGap   { userId, ... }
+room:message                   RoomMessage (autoritative gehaltene Nachricht)
 room:users                     RoomState
 ```
+
+Die **live** übertragenen Events (`signal:*`, `morse:symbol`) sorgen für das
+Echtzeit-Gefühl (Ton/Blitz, Punkte/Striche im Entstehen). Die eigentliche
+Nachricht (Text + Morsecode) ist dagegen **server-autoritativ**: der Server
+hängt sie pro Autor:in an und schickt sie als `room:message` an alle – auch an
+später Beitretende. So funktioniert die Kommunikation asynchron.
 
 ## Morse-Logik
 
@@ -176,7 +191,7 @@ Leerzeichen getrennt, Wörter durch ` / `:
 
 ```
 SOS           = ... --- ...
-ICH BIN TIM   = .. -.-. .... / -... .. -. / - .. --
+HALLO WELT    = .... .- .-.. .-.. --- / .-- . .-.. -
 ```
 
 Standard-Timing (in den Einstellungen änderbar):
@@ -197,17 +212,23 @@ einem Mikrocontroller laufen.
 ## Datenschutz
 
 - Keine Accounts, keine Registrierung, keine Cloud-Datenbank.
-- Räume existieren nur flüchtig im Arbeitsspeicher des Servers und
-  verschwinden, sobald der letzte Nutzer den Room verlässt oder der Server
-  neu startet.
-- Der Morse-/Chatverlauf wird ausschließlich lokal im Browser gehalten
-  (`localStorage`) – über „Lokalen Verlauf löschen" in den Einstellungen
-  jederzeit entfernbar.
-- **Wichtig**: Es gibt in dieser Version **keine Ende-zu-Ende-
-  Verschlüsselung**. Der Server verarbeitet die Events (Signale, Symbole,
-  Buchstaben) aktiv, um sie an die Gegenseite weiterzuleiten – er kann sie
-  daher technisch mitlesen. Für eine private Konversation ist das relevant,
-  auch wenn nichts dauerhaft gespeichert wird.
+- Räume existieren nur flüchtig im **Arbeitsspeicher** des Servers (keine
+  Datenbank, keine Festplatte) und sind nach einem Server-Neustart weg.
+- **Asynchrones Halten**: Damit beide Seiten nicht gleichzeitig online sein
+  müssen, wird die jeweils *aktuelle* Nachricht pro Person im Room gehalten
+  und späteren Beitretenden angezeigt. Dazu bleibt ein Room mit seinen
+  aktuellen Nachrichten nach dem Verlassen der letzten Person noch bis zu
+  **6 Stunden** im Speicher und wird dann automatisch gelöscht (inaktive
+  Rooms spätestens nach 24 h). Es gibt keine dauerhafte Speicherung und
+  keinen durchsuchbaren Verlauf – jede Person kann ihre gehaltene Nachricht
+  jederzeit über „🗑 Neue Nachricht" verwerfen.
+- Anzeigename, letzter Roomcode und alle Einstellungen liegen ausschließlich
+  lokal im Browser (`localStorage`) – über „Lokalen Verlauf löschen" in den
+  Einstellungen jederzeit entfernbar.
+- **Wichtig**: Es gibt **keine Ende-zu-Ende-Verschlüsselung**. Der Server
+  verarbeitet die Events (Signale, Symbole, Buchstaben) aktiv, um sie
+  weiterzuleiten und die aktuelle Nachricht zu halten – er kann sie daher
+  technisch mitlesen. Für vertrauliche Inhalte ist das relevant.
 
 ## ESP32-Ausblick
 
@@ -239,6 +260,28 @@ und dieselben Events senden/empfangen wie die Webapp. Die Morse-Logik aus
 `shared/src/timing.ts` dient dabei als Referenzimplementierung für die
 Firmware. In dieser Version wird noch keine ESP32-Firmware ausgeliefert.
 
+## Sicherheit & Limits
+
+Der Server ist bewusst schlank, aber für den öffentlichen Betrieb gehärtet.
+Alle Grenzwerte stehen in `server/src/rooms.ts` bzw. `server/src/index.ts`:
+
+- **Eingabevalidierung**: Jede Socket-Nachricht wird geprüft (Symbol nur
+  `.`/`-`, Morsecode nur aus `.`/`-`, Längen begrenzt, Steuerzeichen entfernt).
+  Ungültige Events werden verworfen. React escaped die Ausgabe zusätzlich.
+- **Rate-Limiting**: Pro Verbindung ein Token-Bucket (Dauerlast ~60 Events/s,
+  Burst 120) gegen Flooding.
+- **Grenzwerte**: max. 8 Personen/Room, max. 10 000 Rooms gleichzeitig,
+  max. 16 gehaltene Nachrichten/Room, begrenzte Nachrichtenlänge,
+  `maxHttpBufferSize` von 8 KB.
+- **Aufräumen**: Leere Rooms werden nach 6 h, inaktive nach 24 h automatisch
+  entfernt (periodischer Sweep + beim Anlegen).
+- **Header**: `X-Content-Type-Options`, `X-Frame-Options: DENY`,
+  `Referrer-Policy: no-referrer`, restriktive `Permissions-Policy`;
+  `x-powered-by` ist aus. Eine CSP setzt man am besten im Reverse-Proxy.
+- **Graceful Shutdown** auf `SIGTERM`/`SIGINT` für saubere Deployments.
+
+Es gibt weiterhin keine Ende-zu-Ende-Verschlüsselung (siehe „Datenschutz").
+
 ## Deployment
 
 Für den produktiven Betrieb (z. B. unter einer eigenen Subdomain):
@@ -248,8 +291,23 @@ Für den produktiven Betrieb (z. B. unter einer eigenen Subdomain):
 - `server` läuft dauerhaft als Node-Prozess (`npm run build && npm start`)
   und muss per WebSocket erreichbar sein (Reverse-Proxy mit
   WebSocket-Upgrade-Unterstützung, z. B. nginx oder Caddy).
-- Die Client-Server-URL wird über die Umgebungsvariable
-  `VITE_SERVER_URL` beim Build gesetzt (Default: `http://localhost:4000`
-  lokal, sonst gleiche Origin wie die Webapp).
-- Der Server akzeptiert erlaubte Origins über die Umgebungsvariable
-  `CLIENT_ORIGIN` (kommagetrennt).
+
+### Umgebungsvariablen
+
+Siehe `client/.env.example` und `server/.env.example`.
+
+| Variable          | Ort    | Default                        | Zweck                                              |
+| ----------------- | ------ | ------------------------------ | -------------------------------------------------- |
+| `VITE_SERVER_URL` | client | gleiche Origin (prod)          | URL des Socket.IO-Servers (Build-Zeit)             |
+| `VITE_GITHUB_URL` | client | Upstream-Repo                  | Ziel des „Open Source"-Links auf der Startseite    |
+| `PORT`            | server | `4000`                         | Listen-Port                                        |
+| `CLIENT_ORIGIN`   | server | `http://localhost:5173`        | Erlaubte Origins (kommagetrennt) – `*` erlaubt alle |
+| `NODE_ENV`        | server | –                              | `production` liefert zusätzlich `client/dist` aus   |
+
+Beim Fork genügt es, `VITE_GITHUB_URL` auf das eigene Repo zu setzen und
+`CLIENT_ORIGIN` auf die eigene Domain zu pinnen.
+
+## Lizenz
+
+MIT – siehe [`LICENSE`](./LICENSE). Der Platzhalter „MorseRoom contributors"
+kann durch den eigenen Namen/die eigene Organisation ersetzt werden.
