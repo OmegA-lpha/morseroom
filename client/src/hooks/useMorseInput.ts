@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
-import { MorseInputEngine, classifyPress } from "@shared/timing";
+import { MorseInputEngine } from "@shared/timing";
 import type { MorseSymbol, TimingConfig } from "@shared/types";
 
 export interface UseMorseInputOptions {
@@ -64,6 +64,10 @@ export function useMorseInput({
       if (disabled || activeSourceRef.current !== null) return;
       activeSourceRef.current = source;
       pressStartRef.current = performance.now();
+      // Disarm pause detection: while the key is held there is a signal,
+      // so no gap timer from a previous symbol may fire and be mistaken
+      // for a pause. The pause only starts once we release again.
+      engineRef.current?.press();
       setPressed(true);
       onPressStart?.();
     },
@@ -77,11 +81,14 @@ export function useMorseInput({
       activePointerIdRef.current = null;
       const durationMs = performance.now() - pressStartRef.current;
       setPressed(false);
-      const symbol = classifyPress(durationMs, config);
+      // Classify (without mutating state) for the immediate press-end
+      // callback, then let the engine commit the symbol. In adaptive mode
+      // both share the same running estimate, so they always agree.
+      const symbol = engineRef.current?.classify(durationMs) ?? null;
       onPressEnd?.(durationMs, symbol);
       engineRef.current?.release(durationMs);
     },
-    [config, onPressEnd]
+    [onPressEnd]
   );
 
   const onPointerDown = useCallback(

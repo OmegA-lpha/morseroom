@@ -4,6 +4,7 @@ import { useSettings } from "../context/SettingsContext";
 import { useMorseInput } from "../hooks/useMorseInput";
 import { useMorseTone } from "../audio/useMorseTone";
 import { MorseButton } from "../components/MorseButton";
+import { SettingsPanel } from "../components/SettingsPanel";
 import { encodeText } from "@shared/encode";
 
 type PracticeType = "letters" | "words" | "numbers" | "sos" | "custom";
@@ -35,9 +36,10 @@ function nextTarget(type: PracticeType, customText: string): string {
 /** Standalone practice mode: no socket, just you and the morse key. */
 export function SoloPage() {
   const navigate = useNavigate();
-  const { settings } = useSettings();
+  const { settings, updateSettings, clearLocalHistory } = useSettings();
   const tone = useMorseTone(settings.toneFrequencyHz);
 
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [practiceType, setPracticeType] = useState<PracticeType>("letters");
   const [level, setLevel] = useState<Level>(1);
   const [customText, setCustomText] = useState("");
@@ -156,9 +158,14 @@ export function SoloPage() {
 
   return (
     <div className="morseScreen">
-      <button className="topLink" onClick={() => navigate("/")}>
-        ← Zurück
-      </button>
+      <div className="solo__topRow">
+        <button className="topLink" onClick={() => navigate("/")}>
+          ← Zurück
+        </button>
+        <button className="btn btn--icon" onClick={() => setSettingsOpen(true)} aria-label="Einstellungen">
+          ⚙️
+        </button>
+      </div>
 
       <div className="solo">
         <div className="solo__topBar">
@@ -265,8 +272,13 @@ export function SoloPage() {
           </div>
         </div>
         <div className="display__label">
-          Timing: Strich ab {settings.dashThresholdMs}ms · Buchstabenpause {settings.letterGapMs}ms · Wortpause{" "}
-          {settings.wordGapMs}ms
+          {settings.adaptive
+            ? "Timing: Verhältnis-Modus (Strich = 3× Punkt · Wortpause = 7×)"
+            : `Timing: Strich ab ${settings.dashThresholdMs}ms · Buchstabenpause ${settings.letterGapMs}ms · Wortpause ${settings.wordGapMs}ms`}
+          {" · "}
+          <button className="linkButton" onClick={() => setSettingsOpen(true)}>
+            anpassen
+          </button>
         </div>
 
         <div className="morseButtonWrap">
@@ -274,6 +286,14 @@ export function SoloPage() {
           <span className="morseButton__hint">gedrückt halten (oder Leertaste)</span>
         </div>
       </div>
+
+      <SettingsPanel
+        open={settingsOpen}
+        settings={settings}
+        onUpdate={updateSettings}
+        onClose={() => setSettingsOpen(false)}
+        onClearHistory={clearLocalHistory}
+      />
     </div>
   );
 }
