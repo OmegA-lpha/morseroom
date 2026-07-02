@@ -303,7 +303,7 @@ Siehe `client/.env.example` und `server/.env.example`.
 | Variable          | Ort    | Default                        | Zweck                                              |
 | ----------------- | ------ | ------------------------------ | -------------------------------------------------- |
 | `VITE_SERVER_URL` | client | gleiche Origin (prod)          | URL des Socket.IO-Servers (Build-Zeit)             |
-| `VITE_GITHUB_URL` | client | Upstream-Repo                  | Ziel des „Open Source"-Links auf der Startseite    |
+| `VITE_GITHUB_URL` | client | Upstream-Repo                  | Ziel des „Quellcode"-Links auf der Startseite       |
 | `PORT`            | server | `4000`                         | Listen-Port                                        |
 | `CLIENT_ORIGIN`   | server | `http://localhost:5173`        | Erlaubte Origins (kommagetrennt) – `*` erlaubt alle |
 | `NODE_ENV`        | server | –                              | `production` liefert zusätzlich `client/dist` aus   |
@@ -313,5 +313,17 @@ Beim Fork genügt es, `VITE_GITHUB_URL` auf das eigene Repo zu setzen und
 
 ## Lizenz
 
-MIT – siehe [`LICENSE`](./LICENSE). Der Platzhalter „MorseRoom contributors"
-kann durch den eigenen Namen/die eigene Organisation ersetzt werden.
+**PolyForm Noncommercial 1.0.0** – siehe [`LICENSE`](./LICENSE).
+
+Der Quellcode ist öffentlich einsehbar und darf frei **nicht-kommerziell**
+genutzt, verändert, selbst gehostet und geteilt werden (z. B. zum Lernen, für
+Hobby- und Bildungszwecke). **Kommerzielle Nutzung ist nicht gestattet** –
+niemand darf mit dieser Software oder Ableitungen davon Geld verdienen.
+
+> Hinweis: Eine Nicht-kommerziell-Lizenz ist keine „Open-Source"-Lizenz im
+> Sinne der OSI (die verlangt auch kommerzielle Nutzung). Es handelt sich um
+> „source-available" unter nicht-kommerziellen Bedingungen.
+
+Der Platzhalter „MorseRoom contributors" in der `LICENSE` kann durch den
+eigenen Namen ersetzt werden – für die Durchsetzbarkeit ist es sinnvoll, den
+tatsächlichen Rechteinhaber einzutragen.
