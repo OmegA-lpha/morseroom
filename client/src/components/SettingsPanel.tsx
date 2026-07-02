@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import type { MorseRoomSettings } from "../hooks/useLocalSettings";
+import { useI18n } from "../i18n/I18nContext";
 
 interface SettingsPanelProps {
   open: boolean;
@@ -28,6 +29,7 @@ function Toggle({ on, onToggle, label }: { on: boolean; onToggle: () => void; la
 
 /** Bottom-sheet settings panel. Closes on Escape or backdrop tap. */
 export function SettingsPanel({ open, settings, onUpdate, onClose, onClearHistory }: SettingsPanelProps) {
+  const { t } = useI18n();
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
@@ -43,47 +45,47 @@ export function SettingsPanel({ open, settings, onUpdate, onClose, onClearHistor
     <div className="overlay" onClick={onClose}>
       <div className="settingsPanel" onClick={(e) => e.stopPropagation()}>
         <div className="settingsPanel__header">
-          <span className="settingsPanel__title">Einstellungen</span>
-          <button className="btn btn--icon" onClick={onClose} aria-label="Schließen">
+          <span className="settingsPanel__title">{t("settings")}</span>
+          <button className="btn btn--icon" onClick={onClose} aria-label={t("close")}>
             ✕
           </button>
         </div>
 
         <div className="field">
-          <span className="field__label">Anzeigename</span>
+          <span className="field__label">{t("displayName")}</span>
           <input
             className="input"
             style={{ textTransform: "none", letterSpacing: "normal" }}
             value={settings.displayName}
             maxLength={24}
             onChange={(e) => onUpdate({ displayName: e.target.value })}
-            placeholder="Dein Name"
+            placeholder={t("yourName")}
           />
         </div>
 
         <Toggle
-          label="Ton"
+          label={t("sound")}
           on={settings.soundEnabled}
           onToggle={() => onUpdate({ soundEnabled: !settings.soundEnabled })}
         />
         <Toggle
-          label="Lichtmodus"
+          label={t("lightMode")}
           on={settings.lightEnabled}
           onToggle={() => onUpdate({ lightEnabled: !settings.lightEnabled })}
         />
         <Toggle
-          label="Anzeige (Text/Code)"
+          label={t("displayTextCode")}
           on={settings.displayVisible}
           onToggle={() => onUpdate({ displayVisible: !settings.displayVisible })}
         />
         <Toggle
-          label="Roomcode merken"
+          label={t("rememberRoomcode")}
           on={settings.saveRoomCode}
           onToggle={() => onUpdate({ saveRoomCode: !settings.saveRoomCode })}
         />
 
         <div className="field">
-          <span className="field__label">Anzeige-Modus</span>
+          <span className="field__label">{t("displayModeLabel")}</span>
           <div className="solo__chips">
             {(["full", "learn", "blind"] as const).map((mode) => (
               <button
@@ -92,7 +94,7 @@ export function SettingsPanel({ open, settings, onUpdate, onClose, onClearHistor
                 className={`chip${settings.displayMode === mode ? " isActive" : ""}`}
                 onClick={() => onUpdate({ displayMode: mode })}
               >
-                {mode === "full" ? "Alles sichtbar" : mode === "learn" ? "Lernmodus" : "Blindmodus"}
+                {mode === "full" ? t("modeFull") : mode === "learn" ? t("modeLearn") : t("modeBlind")}
               </button>
             ))}
           </div>
@@ -100,7 +102,7 @@ export function SettingsPanel({ open, settings, onUpdate, onClose, onClearHistor
 
         <div className="field">
           <div className="field__row">
-            <span className="field__label">Ton-Frequenz</span>
+            <span className="field__label">{t("toneFrequency")}</span>
             <span className="field__value">{settings.toneFrequencyHz} Hz</span>
           </div>
           <input
@@ -114,24 +116,20 @@ export function SettingsPanel({ open, settings, onUpdate, onClose, onClearHistor
         </div>
 
         <Toggle
-          label="Zeiten aus – nur Verhältnis"
+          label={t("ratioOnly")}
           on={settings.adaptive}
           onToggle={() => onUpdate({ adaptive: !settings.adaptive })}
         />
 
         {settings.adaptive ? (
           <div className="field">
-            <span className="field__hint">
-              Feste Zeiten sind aus. Erkannt wird allein am Verhältnis deines eigenen Tempos
-              (Strich = 3× Punkt, Buchstabenpause = 3×, Wortpause = 7×). Ein Punkt darf 40 ms
-              oder 200 ms lang sein – es zählt nur die Proportion.
-            </span>
+            <span className="field__hint">{t("ratioHint")}</span>
           </div>
         ) : (
           <>
             <div className="field">
               <div className="field__row">
-                <span className="field__label">Strich-Grenze</span>
+                <span className="field__label">{t("dashThreshold")}</span>
                 <span className="field__value">{settings.dashThresholdMs} ms</span>
               </div>
               <input
@@ -146,7 +144,7 @@ export function SettingsPanel({ open, settings, onUpdate, onClose, onClearHistor
 
             <div className="field">
               <div className="field__row">
-                <span className="field__label">Buchstabenpause</span>
+                <span className="field__label">{t("letterGap")}</span>
                 <span className="field__value">{settings.letterGapMs} ms</span>
               </div>
               <input
@@ -161,7 +159,7 @@ export function SettingsPanel({ open, settings, onUpdate, onClose, onClearHistor
 
             <div className="field">
               <div className="field__row">
-                <span className="field__label">Wortpause</span>
+                <span className="field__label">{t("wordGap")}</span>
                 <span className="field__value">{settings.wordGapMs} ms</span>
               </div>
               <input
@@ -178,7 +176,7 @@ export function SettingsPanel({ open, settings, onUpdate, onClose, onClearHistor
 
         <div className="field">
           <div className="field__row">
-            <span className="field__label">Versehentliche Taps ignorieren bis</span>
+            <span className="field__label">{t("ignoreTapsBelow")}</span>
             <span className="field__value">{settings.ignoreBelowMs} ms</span>
           </div>
           <input
@@ -192,7 +190,7 @@ export function SettingsPanel({ open, settings, onUpdate, onClose, onClearHistor
         </div>
 
         <button className="btn btn--danger" onClick={onClearHistory}>
-          Lokalen Verlauf löschen
+          {t("clearLocalHistory")}
         </button>
       </div>
     </div>

@@ -8,6 +8,7 @@ import type {
   MorseSymbol,
 } from "@shared/types";
 import { getClientId } from "../lib/clientId";
+import { useI18n } from "../i18n/I18nContext";
 
 /** Index the server's held-message list by author id for quick lookup. */
 function indexMessages(list: RoomMessage[]): Record<string, RoomMessage> {
@@ -37,6 +38,11 @@ export type MorseSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 export function useSocketRoom() {
   // Stable public identity for this browser (survives reloads/new sockets).
   const clientId = getClientId();
+  // Socket handlers register once, so reach the latest translator via a ref
+  // rather than closing over a stale `t`.
+  const { t } = useI18n();
+  const tRef = useRef(t);
+  tRef.current = t;
   const socketRef = useRef<MorseSocket | null>(null);
   const [socket, setSocket] = useState<MorseSocket | null>(null);
   const [connected, setConnected] = useState(false);
@@ -52,7 +58,7 @@ export function useSocketRoom() {
 
     socket.on("connect", () => setConnected(true));
     socket.on("disconnect", () => setConnected(false));
-    socket.on("connect_error", () => setError("Server nicht erreichbar."));
+    socket.on("connect_error", () => setError(tRef.current("serverUnreachable")));
     socket.on("room:error", ({ message }) => setError(message));
     socket.on("room:users", (state) => {
       setRoomState(state);
@@ -82,14 +88,14 @@ export function useSocketRoom() {
   const createRoom = useCallback((name: string) => {
     return new Promise<RoomState>((resolve, reject) => {
       const socket = socketRef.current;
-      if (!socket) return reject(new Error("Keine Verbindung zum Server."));
+      if (!socket) return reject(new Error(tRef.current("noConnection")));
       socket.emit("room:create", { name, clientId }, (res) => {
         if (res.ok && res.state) {
           setRoomState(res.state);
           setMessages(indexMessages(res.state.messages));
           resolve(res.state);
         } else {
-          const message = res.error ?? "Room konnte nicht erstellt werden.";
+          const message = res.error ?? tRef.current("roomCreateFailed");
           setError(message);
           reject(new Error(message));
         }
@@ -100,14 +106,14 @@ export function useSocketRoom() {
   const joinRoom = useCallback((code: string, name: string) => {
     return new Promise<RoomState>((resolve, reject) => {
       const socket = socketRef.current;
-      if (!socket) return reject(new Error("Keine Verbindung zum Server."));
+      if (!socket) return reject(new Error(tRef.current("noConnection")));
       socket.emit("room:join", { code: code.toUpperCase(), name, clientId }, (res) => {
         if (res.ok && res.state) {
           setRoomState(res.state);
           setMessages(indexMessages(res.state.messages));
           resolve(res.state);
         } else {
-          const message = res.error ?? "Room konnte nicht betreten werden.";
+          const message = res.error ?? tRef.current("roomJoinFailed");
           setError(message);
           reject(new Error(message));
         }

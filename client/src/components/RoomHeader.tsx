@@ -1,3 +1,5 @@
+import { useI18n } from "../i18n/I18nContext";
+
 interface RoomHeaderProps {
   code: string;
   connected: boolean;
@@ -17,6 +19,7 @@ export function RoomHeader({
   onCopyCode,
   onOpenSettings,
 }: RoomHeaderProps) {
+  const { t } = useI18n();
   return (
     <div className="roomHeader">
       <div className="roomHeader__top">
@@ -24,22 +27,22 @@ export function RoomHeader({
           <div className="roomHeader__code">{code}</div>
           <div className="roomHeader__status">
             <span className={`statusDot${connected ? " isOnline" : ""}`} />
-            {connected ? "Verbunden" : "Getrennt"} · {userCount} {userCount === 1 ? "Nutzer" : "Nutzer"}
+            {connected ? t("connected") : t("disconnected")} · {userCount} {t("users")}
           </div>
         </div>
-        <button className="btn btn--icon" onClick={onOpenSettings} aria-label="Einstellungen">
+        <button className="btn btn--icon" onClick={onOpenSettings} aria-label={t("settings")}>
           ⚙
         </button>
       </div>
       <div className="roomHeader__actions">
         <button className="btn btn--small btn--primary" onClick={onShareWhatsApp}>
-          Per WhatsApp teilen
+          {t("shareWhatsApp")}
         </button>
         <button className="btn btn--small" onClick={onCopyLink}>
-          Link kopieren
+          {t("copyLink")}
         </button>
         <button className="btn btn--small" onClick={onCopyCode}>
-          Roomcode kopieren
+          {t("copyCode")}
         </button>
       </div>
     </div>

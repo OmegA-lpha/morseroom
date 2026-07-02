@@ -1,4 +1,5 @@
 import type { MorseRoomSettings } from "../hooks/useLocalSettings";
+import { useI18n } from "../i18n/I18nContext";
 
 interface MorseDisplayProps {
   receivedText: string;
@@ -26,10 +27,11 @@ export function MorseDisplay({
   blindRevealed,
   onReveal,
 }: MorseDisplayProps) {
+  const { t } = useI18n();
   if (!displayVisible) {
     return (
       <div className="display">
-        <p className="display__blindHint">Anzeige ausgeblendet – nur Ton/Licht aktiv.</p>
+        <p className="display__blindHint">{t("displayHidden")}</p>
       </div>
     );
   }
@@ -39,11 +41,9 @@ export function MorseDisplay({
   if (isBlind) {
     return (
       <div className="display">
-        <p className="display__blindHint">
-          Blindmodus: nur hören/sehen, kein Mitlesen. Wenn du fertig bist, löse auf.
-        </p>
+        <p className="display__blindHint">{t("blindHint")}</p>
         <button className="btn btn--small" onClick={onReveal}>
-          Auflösen
+          {t("reveal")}
         </button>
       </div>
     );
@@ -54,17 +54,17 @@ export function MorseDisplay({
   return (
     <div className="display">
       <div className="display__block">
-        <span className="display__label">Empfangener Text</span>
+        <span className="display__label">{t("receivedText")}</span>
         <div className="display__text">{receivedText || "–"}</div>
       </div>
       <div className="display__block">
-        <span className="display__label">Empfangener Morsecode</span>
+        <span className="display__label">{t("receivedMorse")}</span>
         <div className={`display__morse${hideMorse ? " display__hidden" : ""}`}>
           {receivedMorse || "–"}
         </div>
       </div>
       <div className="display__block">
-        <span className="display__label">Eigener Morsecode</span>
+        <span className="display__label">{t("ownMorse")}</span>
         <div className="display__morse display__morse--own">{ownMorse || "–"}</div>
         {ownText ? <div className="display__label">→ {ownText}</div> : null}
       </div>
