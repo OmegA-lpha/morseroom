@@ -1,6 +1,10 @@
 node_modules/
 dist/
+
+# Local env files (never commit real secrets/config). Templates are tracked.
 .env
-.env.local
+.env.*
+!.env.example
+
 *.log
 .DS_Store

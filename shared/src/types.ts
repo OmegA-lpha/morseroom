@@ -34,25 +34,63 @@ export const DEFAULT_TIMING: TimingConfig = {
 
 /** A user present in a room. */
 export interface RoomUser {
+  /** Stable author id (the client's clientId, or socket id as fallback). */
   id: string;
   name: string;
+}
+
+/**
+ * A held ("async") message: the current standing message of one author in a
+ * room. Unlike the live signal events it is persisted server-side and handed
+ * to anyone who joins later, so the two sides do not have to be online at the
+ * same time - each side's message is held until they replace or clear it.
+ */
+export interface RoomMessage {
+  /** Stable author id (clientId, or socket id fallback). */
+  userId: string;
+  /** Author's display name (snapshotted so it survives them leaving). */
+  name: string;
+  /** Decoded text so far. */
+  text: string;
+  /** Raw morse so far (letters separated by spaces, words by " / "). */
+  morse: string;
+  /** Epoch ms of the last update, for ordering. */
+  updatedAt: number;
 }
 
 /** Public room state sent to clients. */
 export interface RoomState {
   code: string;
   users: RoomUser[];
+  /** Held messages of everyone who has written in this room. */
+  messages: RoomMessage[];
 }
 
-/** Client -> Server events. */
+/**
+ * Client -> Server events.
+ *
+ * `clientId` is a stable per-browser id (localStorage). It is the public
+ * author identity used throughout: held messages and presence are keyed by it,
+ * so reloading the page reclaims your own held message and presence instead of
+ * appearing as a new person. It is optional for backward compatibility - the
+ * server falls back to the (ephemeral) socket id when it is missing.
+ */
 export interface ClientToServerEvents {
-  "room:create": (payload: { name: string }, cb: (res: RoomCreateResult) => void) => void;
-  "room:join": (payload: { code: string; name: string }, cb: (res: RoomJoinResult) => void) => void;
+  "room:create": (
+    payload: { name: string; clientId?: string },
+    cb: (res: RoomCreateResult) => void
+  ) => void;
+  "room:join": (
+    payload: { code: string; name: string; clientId?: string },
+    cb: (res: RoomJoinResult) => void
+  ) => void;
   "signal:start": () => void;
   "signal:end": (payload: { durationMs: number; symbol: MorseSymbol }) => void;
   "morse:symbol": (payload: { symbol: MorseSymbol }) => void;
   "morse:letter": (payload: { morse: string; letter: string }) => void;
   "morse:wordGap": () => void;
+  /** Reset the sender's held message to start a fresh one. */
+  "morse:clear": () => void;
   "user:updateSettings": (payload: { name: string }) => void;
 }
 
@@ -69,6 +107,8 @@ export interface ServerToClientEvents {
   "morse:letter": (payload: { userId: string; morse: string; letter: string }) => void;
   "morse:wordGap": (payload: { userId: string }) => void;
   "room:users": (state: RoomState) => void;
+  /** Authoritative held message for one author (also fired on clear). */
+  "room:message": (payload: RoomMessage) => void;
 }
 
 export interface RoomCreateResult {

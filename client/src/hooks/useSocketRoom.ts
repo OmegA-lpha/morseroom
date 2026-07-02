@@ -4,8 +4,17 @@ import type {
   ClientToServerEvents,
   ServerToClientEvents,
   RoomState,
+  RoomMessage,
   MorseSymbol,
 } from "@shared/types";
+import { getClientId } from "../lib/clientId";
+
+/** Index the server's held-message list by author id for quick lookup. */
+function indexMessages(list: RoomMessage[]): Record<string, RoomMessage> {
+  const record: Record<string, RoomMessage> = {};
+  for (const message of list) record[message.userId] = message;
+  return record;
+}
 
 function getServerUrl(): string {
   const envUrl = import.meta.env.VITE_SERVER_URL as string | undefined;
@@ -26,10 +35,14 @@ export type MorseSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
  * typed emit helpers for the live morse signal events.
  */
 export function useSocketRoom() {
+  // Stable public identity for this browser (survives reloads/new sockets).
+  const clientId = getClientId();
   const socketRef = useRef<MorseSocket | null>(null);
   const [socket, setSocket] = useState<MorseSocket | null>(null);
   const [connected, setConnected] = useState(false);
   const [roomState, setRoomState] = useState<RoomState | null>(null);
+  /** Server-authoritative held messages, keyed by author id. */
+  const [messages, setMessages] = useState<Record<string, RoomMessage>>({});
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -41,9 +54,17 @@ export function useSocketRoom() {
     socket.on("disconnect", () => setConnected(false));
     socket.on("connect_error", () => setError("Server nicht erreichbar."));
     socket.on("room:error", ({ message }) => setError(message));
-    socket.on("room:users", (state) => setRoomState(state));
+    socket.on("room:users", (state) => {
+      setRoomState(state);
+      setMessages(indexMessages(state.messages));
+    });
+    socket.on("room:message", (message) => {
+      setMessages((prev) => ({ ...prev, [message.userId]: message }));
+    });
     socket.on("user:joined", ({ user }) => {
-      setRoomState((prev) => (prev ? { ...prev, users: [...prev.users, user] } : prev));
+      setRoomState((prev) =>
+        prev ? { ...prev, users: [...prev.users.filter((u) => u.id !== user.id), user] } : prev
+      );
     });
     socket.on("user:left", ({ userId }) => {
       setRoomState((prev) =>
@@ -62,9 +83,10 @@ export function useSocketRoom() {
     return new Promise<RoomState>((resolve, reject) => {
       const socket = socketRef.current;
       if (!socket) return reject(new Error("Keine Verbindung zum Server."));
-      socket.emit("room:create", { name }, (res) => {
+      socket.emit("room:create", { name, clientId }, (res) => {
         if (res.ok && res.state) {
           setRoomState(res.state);
+          setMessages(indexMessages(res.state.messages));
           resolve(res.state);
         } else {
           const message = res.error ?? "Room konnte nicht erstellt werden.";
@@ -73,15 +95,16 @@ export function useSocketRoom() {
         }
       });
     });
-  }, []);
+  }, [clientId]);
 
   const joinRoom = useCallback((code: string, name: string) => {
     return new Promise<RoomState>((resolve, reject) => {
       const socket = socketRef.current;
       if (!socket) return reject(new Error("Keine Verbindung zum Server."));
-      socket.emit("room:join", { code: code.toUpperCase(), name }, (res) => {
+      socket.emit("room:join", { code: code.toUpperCase(), name, clientId }, (res) => {
         if (res.ok && res.state) {
           setRoomState(res.state);
+          setMessages(indexMessages(res.state.messages));
           resolve(res.state);
         } else {
           const message = res.error ?? "Room konnte nicht betreten werden.";
@@ -90,7 +113,7 @@ export function useSocketRoom() {
         }
       });
     });
-  }, []);
+  }, [clientId]);
 
   const sendSignalStart = useCallback(() => {
     socketRef.current?.emit("signal:start");
@@ -112,6 +135,10 @@ export function useSocketRoom() {
     socketRef.current?.emit("morse:wordGap");
   }, []);
 
+  const sendClear = useCallback(() => {
+    socketRef.current?.emit("morse:clear");
+  }, []);
+
   const updateName = useCallback((name: string) => {
     socketRef.current?.emit("user:updateSettings", { name });
   }, []);
@@ -122,6 +149,7 @@ export function useSocketRoom() {
     socket,
     connected,
     roomState,
+    messages,
     error,
     clearError,
     createRoom,
@@ -131,7 +159,9 @@ export function useSocketRoom() {
     sendSymbol,
     sendLetter,
     sendWordGap,
+    sendClear,
     updateName,
-    selfId: socket?.id,
+    /** Stable public identity of this browser (matches RoomMessage.userId). */
+    selfId: clientId,
   };
 }
