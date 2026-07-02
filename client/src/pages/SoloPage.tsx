@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useSettings } from "../context/SettingsContext";
+import { useI18n } from "../i18n/I18nContext";
 import { useMorseInput } from "../hooks/useMorseInput";
 import { useMorseTone } from "../audio/useMorseTone";
 import { MorseButton } from "../components/MorseButton";
@@ -37,6 +38,7 @@ function nextTarget(type: PracticeType, customText: string): string {
 export function SoloPage() {
   const navigate = useNavigate();
   const { settings, updateSettings, clearLocalHistory } = useSettings();
+  const { t } = useI18n();
   const tone = useMorseTone(settings.toneFrequencyHz);
 
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -160,9 +162,9 @@ export function SoloPage() {
     <div className="morseScreen">
       <div className="solo__topRow">
         <button className="topLink" onClick={() => navigate("/")}>
-          ← Zurück
+          ← {t("back")}
         </button>
-        <button className="btn btn--icon" onClick={() => setSettingsOpen(true)} aria-label="Einstellungen">
+        <button className="btn btn--icon" onClick={() => setSettingsOpen(true)} aria-label={t("settings")}>
           ⚙️
         </button>
       </div>
@@ -177,14 +179,14 @@ export function SoloPage() {
                 onClick={() => setPracticeType(type)}
               >
                 {type === "letters"
-                  ? "Buchstaben"
+                  ? t("practiceLetters")
                   : type === "words"
-                  ? "Wörter"
+                  ? t("practiceWords")
                   : type === "numbers"
-                  ? "Zahlen"
+                  ? t("practiceNumbers")
                   : type === "sos"
-                  ? "SOS"
-                  : "Eigener Text"}
+                  ? t("practiceSos")
+                  : t("practiceCustom")}
               </button>
             ))}
           </div>
@@ -195,7 +197,7 @@ export function SoloPage() {
                 className={`chip${level === lvl ? " isActive" : ""}`}
                 onClick={() => setLevel(lvl as Level)}
               >
-                Level {lvl}
+                {t("level")} {lvl}
               </button>
             ))}
           </div>
@@ -204,7 +206,7 @@ export function SoloPage() {
         {practiceType === "custom" && (
           <input
             className="input"
-            placeholder="Eigener Übungstext"
+            placeholder={t("customPlaceholder")}
             value={customText}
             onChange={(e) => setCustomText(e.target.value)}
             onBlur={() => newTarget("custom")}
@@ -214,14 +216,14 @@ export function SoloPage() {
         <div className="solo__target">
           {level === 3 ? (
             <>
-              <div className="display__label">Ton/Licht abspielen und nachmorsen</div>
+              <div className="display__label">{t("level3Label")}</div>
               {!playedBack ? (
                 <button className="btn" onClick={playTargetBack}>
-                  Nochmal abspielen
+                  {t("playAgain")}
                 </button>
               ) : (
                 <button className="btn btn--small" onClick={playTargetBack}>
-                  🔁 Wiederholen
+                  🔁 {t("repeat")}
                 </button>
               )}
             </>
@@ -242,13 +244,13 @@ export function SoloPage() {
               feedback === "correct" ? " solo__feedback--ok" : feedback === "wrong" ? " solo__feedback--error" : ""
             }`}
           >
-            {feedback === "correct" && "Richtig!"}
-            {feedback === "wrong" && `Falsch – erwartet: ${target} (${targetMorse})`}
+            {feedback === "correct" && t("correct")}
+            {feedback === "wrong" && t("wrongExpected", { target, morse: targetMorse })}
           </div>
 
           {feedback && (
             <button className="btn btn--primary" onClick={() => newTarget()}>
-              Weiter
+              {t("next")}
             </button>
           )}
         </div>
@@ -256,34 +258,38 @@ export function SoloPage() {
         <div className="solo__stats">
           <div className="statTile">
             <div className="statTile__value">{stats.correct}</div>
-            <div className="statTile__label">Richtig</div>
+            <div className="statTile__label">{t("statCorrect")}</div>
           </div>
           <div className="statTile">
             <div className="statTile__value">{stats.wrong}</div>
-            <div className="statTile__label">Fehler</div>
+            <div className="statTile__label">{t("statWrong")}</div>
           </div>
           <div className="statTile">
             <div className="statTile__value">{accuracy}%</div>
-            <div className="statTile__label">Trefferquote</div>
+            <div className="statTile__label">{t("statAccuracy")}</div>
           </div>
           <div className="statTile">
             <div className="statTile__value">{avgReaction || "–"}</div>
-            <div className="statTile__label">Ø Reaktion ms</div>
+            <div className="statTile__label">{t("statReaction")}</div>
           </div>
         </div>
         <div className="display__label">
           {settings.adaptive
-            ? "Timing: Verhältnis-Modus (Strich = 3× Punkt · Wortpause = 7×)"
-            : `Timing: Strich ab ${settings.dashThresholdMs}ms · Buchstabenpause ${settings.letterGapMs}ms · Wortpause ${settings.wordGapMs}ms`}
+            ? t("timingRatio")
+            : t("timingFixed", {
+                dash: settings.dashThresholdMs,
+                letter: settings.letterGapMs,
+                word: settings.wordGapMs,
+              })}
           {" · "}
           <button className="linkButton" onClick={() => setSettingsOpen(true)}>
-            anpassen
+            {t("adjust")}
           </button>
         </div>
 
         <div className="morseButtonWrap">
           <MorseButton pressed={pressed} {...handlers} disabled={level === 3 && !playedBack} />
-          <span className="morseButton__hint">gedrückt halten (oder Leertaste)</span>
+          <span className="morseButton__hint">{t("holdHint")}</span>
         </div>
       </div>
 

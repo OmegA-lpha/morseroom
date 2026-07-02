@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useSettings } from "../context/SettingsContext";
+import { useI18n } from "../i18n/I18nContext";
 import { useSocketRoom } from "../hooks/useSocketRoom";
 import { useMorseInput } from "../hooks/useMorseInput";
 import { useMorseTone } from "../audio/useMorseTone";
@@ -14,6 +15,7 @@ export function RoomPage() {
   const navigate = useNavigate();
   const { settings, updateSettings, setLastRoomCode, clearLocalHistory, storageAvailable } =
     useSettings();
+  const { t } = useI18n();
 
   const {
     socket,
@@ -157,9 +159,9 @@ export function RoomPage() {
   const displayCode = roomState?.code ?? codeParam?.toUpperCase() ?? "";
 
   const handleShareWhatsApp = useCallback(() => {
-    const text = `Komm in meinen MorseRoom: ${displayCode}\n${shareLink}`;
+    const text = `${t("shareText", { code: displayCode })}\n${shareLink}`;
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank", "noopener");
-  }, [displayCode, shareLink]);
+  }, [displayCode, shareLink, t]);
 
   const handleCopyLink = useCallback(() => {
     navigator.clipboard?.writeText(shareLink).catch(() => {});
@@ -174,12 +176,10 @@ export function RoomPage() {
       <div className={`lightFlash${remoteFlash ? " isOn" : ""}`} />
 
       <button className="topLink" onClick={() => navigate("/")}>
-        ← Verlassen
+        ← {t("leave")}
       </button>
 
-      {!storageAvailable && (
-        <div className="banner">localStorage nicht verfügbar – Einstellungen werden nicht gespeichert.</div>
-      )}
+      {!storageAvailable && <div className="banner">{t("storageUnavailable")}</div>}
       {error && (
         <div className="banner" onClick={clearError}>
           {error}
@@ -198,8 +198,8 @@ export function RoomPage() {
 
       {otherMessage && (otherMessage.text || otherMessage.morse) && (
         <div className="asyncHint">
-          Nachricht von <strong>{otherMessage.name}</strong>
-          {otherOnline ? " (online)" : " · offline – wird gehalten, bis du antwortest"}
+          {t("messageFrom")} <strong>{otherMessage.name}</strong>
+          {otherOnline ? ` (${t("statusOnline")})` : ` · ${t("statusOfflineHeld")}`}
         </div>
       )}
 
@@ -216,35 +216,35 @@ export function RoomPage() {
 
       <div className="morseButtonWrap">
         <MorseButton pressed={pressed} {...handlers} disabled={!roomState} />
-        <span className="morseButton__hint">gedrückt halten (oder Leertaste)</span>
+        <span className="morseButton__hint">{t("holdHint")}</span>
         <div className="morseControls">
           <button
             className="btn btn--icon"
             onClick={handleClearOwn}
             disabled={!ownMessage?.text && !ownMessage?.morse && !ownBuffer}
-            aria-label="Neue Nachricht beginnen"
-            title="Neue Nachricht beginnen"
+            aria-label={t("newMessage")}
+            title={t("newMessage")}
           >
             🗑
           </button>
           <button
             className={`btn btn--icon${settings.displayVisible ? " isActive" : ""}`}
             onClick={() => updateSettings({ displayVisible: !settings.displayVisible })}
-            aria-label="Anzeige an/aus"
+            aria-label={t("toggleDisplay")}
           >
             👁
           </button>
           <button
             className={`btn btn--icon${settings.soundEnabled ? " isActive" : ""}`}
             onClick={() => updateSettings({ soundEnabled: !settings.soundEnabled })}
-            aria-label="Ton an/aus"
+            aria-label={t("toggleSound")}
           >
             🔊
           </button>
           <button
             className={`btn btn--icon${settings.lightEnabled ? " isActive" : ""}`}
             onClick={() => updateSettings({ lightEnabled: !settings.lightEnabled })}
-            aria-label="Licht an/aus"
+            aria-label={t("toggleLight")}
           >
             💡
           </button>
